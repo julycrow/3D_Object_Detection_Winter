@@ -82,10 +82,11 @@ class BaseBEVBackbone(nn.Module):
         """
         Args:
             data_dict:
-                spatial_features
+                spatial_features:torch.Size([4, 320, 200, 176])
+                # spatial_shape:[176, 200, 5]
         Returns:
         """
-        spatial_features = data_dict['spatial_features']
+        spatial_features = data_dict['spatial_features']  # torch.Size([4, 320, 200, 176])
         ups = []
         ret_dict = {}
         x = spatial_features
@@ -107,6 +108,6 @@ class BaseBEVBackbone(nn.Module):
         if len(self.deblocks) > len(self.blocks):
             x = self.deblocks[-1](x)
 
-        data_dict['spatial_features_2d'] = x
+        data_dict['spatial_features_2d'] = x  # torch.Size([4, 512, 200, 176])
 
         return data_dict

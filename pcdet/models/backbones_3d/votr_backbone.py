@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-
+import time
 from ...ops.votr_ops import votr_utils
 
+torch.autograd.set_detect_anomaly(True)
 def scatter_nd(indices, updates, shape):
     """pytorch edition of tensorflow scatter_nd.
     this function don't contain except handle code. so use this carefully
@@ -149,20 +150,20 @@ class SparseAttention3d(Attention3d):
 
     @torch.no_grad()
     def downsample(self, sp_tensor):
-        x_shape = sp_tensor.spatial_shape[0] // self.strides[0]
-        y_shape = sp_tensor.spatial_shape[1] // self.strides[1]
-        z_shape = sp_tensor.spatial_shape[2] // self.strides[2]
+        x_shape = sp_tensor.spatial_shape[0] // self.strides[0]  # 1408/2=704
+        y_shape = sp_tensor.spatial_shape[1] // self.strides[1]  # 1600/2=800
+        z_shape = sp_tensor.spatial_shape[2] // self.strides[2]  # 40/2=20
         new_spatial_shape = [x_shape, y_shape, z_shape]
         new_indices, new_map_table = votr_utils.hash_table_down_sample(self.strides, self.num_ds_voxels, sp_tensor.batch_size, sp_tensor.hash_size, new_spatial_shape, sp_tensor.indices)
         return new_spatial_shape, new_indices, new_map_table
 
-    def forward(self, sp_tensor):
-        new_spatial_shape, new_indices, new_map_table = self.downsample(sp_tensor)
+    def forward(self, sp_tensor):  #
+        new_spatial_shape, new_indices, new_map_table = self.downsample(sp_tensor)  # list3:[704, 800, 20], torch.Size([40134, 4]), torch.Size([4, 400000, 2])
         vx, vy, vz = sp_tensor.voxel_size
         new_voxel_size = [vx * self.strides[0], vy * self.strides[1], vz * self.strides[2]]
-        gather_dict = self.create_gather_dict(self.attention_modes, sp_tensor.map_table, new_indices, sp_tensor.spatial_shape)
+        gather_dict = self.create_gather_dict(self.attention_modes, sp_tensor.map_table, new_indices, sp_tensor.spatial_shape)  # torch.Size([60599, 48]) X2
 
-        voxel_features = sp_tensor.features
+        voxel_features = sp_tensor.features  # torch.Size([60599, 16]):(num_voxels, C)
         v_bs_cnt = self.with_bs_cnt(sp_tensor.indices, sp_tensor.batch_size)
         k_bs_cnt = self.with_bs_cnt(new_indices, sp_tensor.batch_size)
 
@@ -172,19 +173,19 @@ class SparseAttention3d(Attention3d):
             a_key_indices.append(key_indices)
             a_key_mask.append(key_mask)
 
-        key_indices = torch.cat(a_key_indices, dim = 1)
+        key_indices = torch.cat(a_key_indices, dim = 1)  # torch.Size([60599, 48]),a_key_indices是个元组,但是里面只包含一个元素
         key_mask = torch.cat(a_key_mask, dim = 1)
 
-        key_features = votr_utils.grouping_operation(voxel_features, v_bs_cnt, key_indices, k_bs_cnt)
+        key_features = votr_utils.grouping_operation(voxel_features, v_bs_cnt, key_indices, k_bs_cnt)  # torch.Size([40134, 16, 48])
         voxel_coords = self.with_coords(sp_tensor.indices, sp_tensor.point_cloud_range, sp_tensor.voxel_size)
         key_coords = votr_utils.grouping_operation(voxel_coords, v_bs_cnt, key_indices, k_bs_cnt)
 
         query_coords = self.with_coords(new_indices, sp_tensor.point_cloud_range, new_voxel_size)
 
-        if self.use_pooled_features:
+        if self.use_pooled_features:  # True
             pooled_query_features = key_features.max(dim=-1)[0]
             pooled_query_features = pooled_query_features.unsqueeze(0)
-            if self.use_no_query_coords:
+            if self.use_no_query_coords:  # True
                 query_features = pooled_query_features
             else:
                 query_features = self.q_pos_proj(query_coords).unsqueeze(0)
@@ -197,11 +198,11 @@ class SparseAttention3d(Attention3d):
 
         key_pos_emb = self.k_pos_proj(key_coords)
         key_features = key_features + key_pos_emb
-        key_features = key_features.permute(2, 0, 1).contiguous() # (size, N1+N2, C)
+        key_features = key_features.permute(2, 0, 1).contiguous() # (size, N1+N2, C)  # torch.Size([48, 40134, 16])
 
         attend_features, attend_weights = self.mhead_attention(
-            query = query_features,
-            key = key_features,
+            query = query_features,  # torch.Size([1, 40768, 16])
+            key = key_features,  # torch.Size([48, 40768, 16])
             value = key_features,
             key_padding_mask = key_mask,
         )
@@ -296,7 +297,7 @@ class SubMAttention3d(Attention3d):
             key_pos_emb = self.k_pos_proj(key_coords)
             key_features = key_features + key_pos_emb
 
-            if self.use_no_query_coords:
+            if self.use_no_query_coords:  # True
                 pass
             else:
                 query_pos_emb = self.q_pos_proj(voxel_coords).unsqueeze(0)
@@ -317,7 +318,7 @@ class SubMAttention3d(Attention3d):
         act_features = self.linear2(self.dropout1(self.activation(self.linear1(voxel_features))))
         voxel_features = voxel_features + self.dropout2(act_features)
         voxel_features = self.norm2(voxel_features)
-        voxel_features = self.output_layer(voxel_features)
+        voxel_features = self.output_layer(voxel_features).clone()
         sp_tensor.features = voxel_features
         return sp_tensor
 
@@ -340,7 +341,7 @@ class AttentionResBlock(nn.Module):
         )
         subm_cfg = model_cfg.SUBM_CFGS
         self.subm_attention_modules = nn.ModuleList()
-        for i in range(subm_cfg.NUM_BLOCKS):
+        for i in range(subm_cfg.NUM_BLOCKS):  # 2层
             self.subm_attention_modules.append(SubMAttention3d(
                 input_channels = subm_cfg.CHANNELS[0],
                 output_channels = subm_cfg.CHANNELS[2],
@@ -353,12 +354,18 @@ class AttentionResBlock(nn.Module):
                 use_no_query_coords= use_no_query_coords,
             ))
 
-    def forward(self, sp_tensor):
+    def forward(self, sp_tensor):  # sp_tensor.features:torch.Size([58364, 16]),sp_tensor.spatial_shape:[1408 1600   40]
         sp_tensor = self.sp_attention(sp_tensor)
-        indentity_features = sp_tensor.features
-        for subm_module in self.subm_attention_modules:
+        # sp_tensor.features:torch.Size([41226, 32])
+        #          .indices:torch.Size([41226,, 4])
+        #          .spatial_shape:[704, 800, 20]
+        indentity_features = sp_tensor.features  # torch.Size([40504, 32])
+        for subm_module in self.subm_attention_modules:  # 2层
             sp_tensor = subm_module(sp_tensor)
-        sp_tensor.features += indentity_features
+        # sp_tensor.features:torch.Size([41226, 32])
+        #          .indices:torch.Size([41226,, 4])
+        #          .spatial_shape:[704, 800, 20]
+        sp_tensor.features += indentity_features  # torch.Size([40504, 32])
         return sp_tensor
 
 class VoxelTransformer(nn.Module):
@@ -379,30 +386,35 @@ class VoxelTransformer(nn.Module):
             nn.ReLU()
         )
         self.backbone = nn.ModuleList()
-        for param in self.model_cfg.PARAMS:
+        for param in self.model_cfg.PARAMS:  # list:3
             self.backbone.append(AttentionResBlock(param, self.use_relative_coords, self.use_pooled_feature, self.use_no_query_coords))
 
         self.num_point_features = self.model_cfg.NUM_OUTPUT_FEATURES
 
     def forward(self, batch_dict):
-        voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']
+        voxel_features, voxel_coords = batch_dict['voxel_features'], batch_dict['voxel_coords']  # torch.Size([61585, 4]),torch.Size([61585, 4])
         batch_size = batch_dict['batch_size']
 
-        voxel_features = self.input_transform(voxel_features)
+        voxel_features = self.input_transform(voxel_features)  # torch.Size([61585, 16])
 
         sp_tensor = SparseTensor(
             features = voxel_features,
             indices = voxel_coords.int(),
-            spatial_shape = self.grid_size,
-            voxel_size = self.voxel_size,
+            spatial_shape = self.grid_size,  # [1408 1600   40]
+            voxel_size = self.voxel_size,  # [0.05, 0.05, 0.1]
             point_cloud_range = self.point_cloud_range,
             batch_size = batch_size,
             hash_size = self.model_cfg.HASH_SIZE,
             map_table = None,
             gather_dict = None,
         )
-        for attention_block in self.backbone:
+        for attention_block in self.backbone:  # 3层AttentionResBlock
             sp_tensor = attention_block(sp_tensor)
+            # sp_tensor.features:torch.Size([11238, 64])
+            #          .indices:torch.Size([11238, 4])
+            #          .spatial_shape:[176, 200, 5]
+
+
 
         batch_dict.update({
             'encoded_spconv_tensor': sp_tensor,
@@ -746,7 +758,7 @@ class SubMAttention3dv2(Attention3d):
         act_features = self.linear2(self.dropout1(self.activation(self.linear1(voxel_features))))
         voxel_features = voxel_features + self.dropout2(act_features)
         voxel_features = self.norm2(voxel_features)
-        voxel_features = self.output_layer(voxel_features)
+        voxel_features = self.output_layer(voxel_features).clone()
         sp_tensor.features = voxel_features
         return sp_tensor
 

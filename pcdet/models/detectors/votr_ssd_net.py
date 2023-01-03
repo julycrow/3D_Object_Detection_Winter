@@ -7,7 +7,11 @@ class VoTrSSD(Detector3DTemplate):
 
     def forward(self, batch_dict):
         for cur_module in self.module_list:
+            # import time
+            # start =  time.time()
             batch_dict = cur_module(batch_dict)
+            # print('backbone_time:', time.time()-start)
+            # print('1')
 
         if self.training:
             loss, tb_dict, disp_dict = self.get_training_loss()

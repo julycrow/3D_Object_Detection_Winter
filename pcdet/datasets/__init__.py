@@ -7,11 +7,13 @@ from pcdet.utils import common_utils
 from .dataset import DatasetTemplate
 from .kitti.kitti_dataset import KittiDataset
 from .waymo.waymo_dataset import WaymoDataset
+from .cadc.cadc_dataset import CadcDataset
 
 __all__ = {
     'DatasetTemplate': DatasetTemplate,
     'KittiDataset': KittiDataset,
     'WaymoDataset': WaymoDataset,
+    'CadcDataset': CadcDataset,
 }
 
 class DistributedSampler(_DistributedSampler):

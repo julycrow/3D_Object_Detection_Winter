@@ -41,7 +41,7 @@ def train_one_epoch(model, optimizer, train_loader, model_func, lr_scheduler, ac
             batch['temperature'] = cur_temperature
 
         loss, tb_dict, disp_dict = model_func(model, batch)
-
+        # torch.autograd.set_detect_anomaly(True)
         loss.backward()
         clip_grad_norm_(model.parameters(), optim_cfg.GRAD_NORM_CLIP)
         optimizer.step()

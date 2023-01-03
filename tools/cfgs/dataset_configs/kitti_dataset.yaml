@@ -1,5 +1,8 @@
 DATASET: 'KittiDataset'
-DATA_PATH: '../data/kitti'
+#DATA_PATH: '../data/kitti'
+#DATA_PATH: '/root/disk0/jmk3/PycharmProject/OpenPCDet/data/kitti/'
+DATA_PATH: '/root/disk0/jmk3/PycharmProject/VoxSeT/data/kitti'
+
 CLOUD_DATA_PATH: '/cache/kitti'
 
 POINT_CLOUD_RANGE: [0, -40, -3, 70.4, 40, 1]

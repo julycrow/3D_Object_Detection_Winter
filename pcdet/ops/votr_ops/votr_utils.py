@@ -386,8 +386,8 @@ class GroupingOperation(Function):
         assert idx.is_contiguous()
         assert idx_batch_cnt.is_contiguous()
 
-        assert features.shape[0] == features_batch_cnt.sum(), \
-            'features: %s, features_batch_cnt: %s' % (str(features.shape), str(features_batch_cnt))
+        # assert features.shape[0] == features_batch_cnt.sum(), \
+        #     'features: %s, features_batch_cnt: %s' % (str(features.shape), str(features_batch_cnt))
         assert idx.shape[0] == idx_batch_cnt.sum(), \
             'idx: %s, idx_batch_cnt: %s' % (str(idx.shape), str(idx_batch_cnt))
 

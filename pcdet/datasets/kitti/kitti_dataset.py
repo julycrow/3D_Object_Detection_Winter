@@ -433,7 +433,7 @@ class KittiDataset(DatasetTemplate):
 
         data_dict = self.prepare_data(data_dict=input_dict)
 
-        data_dict['image_shape'] = img_shape
+        data_dict['image_shape'] = img_shape  # [ 375 1242]
         return data_dict
 
 
